@@ -22,3 +22,8 @@ cp source/site/posts/discussion.html posts/discussion.html
 本地预览：`python -m http.server 8765 --bind 127.0.0.1`。用 ?season=spring、summer、autumn、winter 检查四季。资源来源与许可证见 ASSETS.md。
 
 main 分支根目录由 GitHub Pages 发布。
+
+
+## 当前秋季首页
+
+秋季采用 Blender 成片的固定视角烘焙光影、真实建筑 GLB 和带深度的 2.5D 植被；水面保留微动。主场景模型约79MB，保留建筑细节。春、夏、冬继续使用原有季节场景。入口为 assets/js/garden.bundle.js，可编辑模块保留在同目录；更新模块后需重新打包。source 中的旧建筑生成脚本对应原有季节资产，不会生成新版秋季母场景。
