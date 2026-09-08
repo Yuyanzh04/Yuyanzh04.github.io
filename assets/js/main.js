@@ -1,7 +1,9 @@
+import {startLocalDate} from './local-date.js';
 import {createGarden} from './scene.js';
 import {bindInteractions} from './interactions.js';
 const canvas=document.querySelector('#garden');
 const loading=document.querySelector('#loading');
+startLocalDate();
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 try {
  const garden=await createGarden(canvas,n=>document.querySelector('#load-percent').textContent=`${n}%`);

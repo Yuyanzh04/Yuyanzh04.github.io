@@ -1,0 +1,82 @@
+{
+  "width": 1920,
+  "height": 1200,
+  "projection": [
+    [
+      3.0555553436279297,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      4.888888835906982,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      -1.0006669759750366,
+      -0.2000666856765747
+    ],
+    [
+      0.0,
+      0.0,
+      -1.0,
+      0.0
+    ]
+  ],
+  "camera_world": [
+    [
+      0.863778829574585,
+      -0.03977173566818237,
+      0.5022990107536316,
+      14.0
+    ],
+    [
+      0.5038711428642273,
+      0.06818017363548279,
+      -0.8610838055610657,
+      -23.0
+    ],
+    [
+      -3.757850208785385e-08,
+      0.9968799948692322,
+      0.07893241941928864,
+      5.300000190734863
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "depth_cols": 321,
+  "depth_rows": 201,
+  "models": [
+    {
+      "file": "scene.glb"
+    }
+  ],
+  "groups": {
+    "research": "garden_research",
+    "writing": "garden_writing",
+    "projects": "garden_projects",
+    "about": "garden_about",
+    "environment": "garden_environment",
+    "water": "garden_water"
+  },
+  "technique": "Fixed-camera baked radiance on original evaluated architecture; full-resolution depth vegetation impostor",
+  "z_semantics": "Axial camera depth from Blender Z pass",
+  "id_counts": {
+    "0": 267589,
+    "1": 512856,
+    "2": 122622,
+    "4": 12057,
+    "5": 574181,
+    "6": 465679,
+    "7": 349016
+  }
+}

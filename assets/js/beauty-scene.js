@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import {GLTFLoader} from '../vendor/addons/loaders/GLTFLoader.js';
+import {MeshoptDecoder} from '../vendor/meshopt_decoder.module.js';
 import {BUILDINGS} from './config.js';
 import {getSeason} from './season.js';
 
 // Fixed-view radiance baking: true architecture, depth vegetation, original optical frame.
 // This deliberately has no second tone map or dynamic relighting of baked surfaces.
-const ROOT = new URL('../models/beauty/', import.meta.url);
+const ROOT = new URL('../models/garden-final/', import.meta.url);
 const asset = name => new URL(name, ROOT).href;
 const ids = {research:1, writing:2, projects:3, about:4, vegetation:5, environment:6, water:7, sky:0};
 const vertexShader = `
@@ -54,7 +55,7 @@ export async function createBeautyGarden(canvas, progress){
  const textureLoader=new THREE.TextureLoader();
  const [meta,texture,mask,depthBuffer]=await Promise.all([
    fetch(asset('transfer.json')).then(r=>{if(!r.ok)throw Error('Missing fixed-camera manifest');return r.json();}),
-   textureLoader.loadAsync(asset('radiance.png')),
+   textureLoader.loadAsync(asset('radiance.webp')),
    textureLoader.loadAsync(asset('object-ids.png')),
    fetch(asset('vegetation-depth.bin')).then(r=>{if(!r.ok)throw Error('Missing vegetation depth');return r.arrayBuffer();})
  ]);
@@ -89,7 +90,7 @@ export async function createBeautyGarden(canvas, progress){
    }});
    materials.set(key,m);return m;
  }
- const loader=new GLTFLoader(), groups=new Map();
+ const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder), groups=new Map();
  const gltfs=await Promise.all(meta.models.map(async (model,i)=>{
    const gltf=await loader.loadAsync(asset(model.file));progress(Math.round((i+1)/meta.models.length*90));
    return {model,gltf};
@@ -120,7 +121,7 @@ export async function createBeautyGarden(canvas, progress){
    corners.setXYZ(i,p.x,p.y,p.z);
  }
  skyGeometry.computeBoundingSphere();const sky=new THREE.Mesh(skyGeometry,material('sky'));sky.name='Sky only';scene.add(sky);
- const focuses={research:[4.1,5.5,-5.2],writing:[-6.1,3.7,-5.3],projects:[11.7,2.6,6.5],about:[-12.6,2.2,7.5]};
+ const focuses={research:[4.9,4.4,-5.7],writing:[-6.8,2.2,-6.7],projects:[11.6,2.6,-10.4],about:[-11.1,2.2,4.5]};
  const buildings=BUILDINGS.map(item=>({...item,group:groups.get(item.id),highlight:[],focus:new THREE.Vector3(...focuses[item.id]),strength:0}));
  for(const b of buildings)if(!b.group)throw Error(`Missing real building geometry: ${b.id}`);
  // The image-space visibility pass prevents a tree's cutout quad or an occluded building from stealing clicks.

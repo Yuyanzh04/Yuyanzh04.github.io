@@ -1,29 +1,11 @@
-# 张语嫣 · 四季庭院
+# 张语嫣的个人主页
 
-https://yuyanzh04.github.io/
+正式地址：[yuyanzh04.github.io](https://yuyanzh04.github.io/)。GitHub Pages 直接发布 main 分支根目录。
 
-纯静态 GitHub Pages 个人主页。首页使用 Three.js 与四个原创 Blender GLB，内容页保留个人资料、研究方向和《构建之法》讨论。
+2026-09-08 秋季版使用两层临水楼阁、单层长厅、月洞门及连续回廊。台阶花槽、岸边低矮植物和细灯柱补充近景尺度；固定镜头，点击建筑或导航进入栏目。
 
-## 修改
+网页保留建筑三维几何，材质和光照使用固定视角烘焙，植被使用深度表面，水纹实时轻微变化。秋季资源位于 `assets/models/garden-final/`；其他季节保留现有渲染器。
 
-场景与样式位于 assets/。个人资料、讨论原稿和构建脚本位于 source/。
+模型从 58.35 MB 无损编码到 4.88 MB，970,056 个三角面和 Float32 顶点精度保持不变。光照图使用无损 WebP。解码器许可见 `assets/vendor/LICENSE-meshoptimizer.md`，美术资源来源见 [ASSETS.md](ASSETS.md)。
 
-重建内容页面：
-
-```sh
-python -m pip install -r source/requirements.txt
-python source/build.py
-cp source/site/*.html .
-cp source/site/posts/discussion.html posts/discussion.html
-```
-
-重建建筑：`blender --background --python source/tools/build_architecture.py`，然后把 source/site/assets/models/*.glb 复制到 assets/models/。Blender 仅用于制作资产，网站运行无需后端。
-
-本地预览：`python -m http.server 8765 --bind 127.0.0.1`。用 ?season=spring、summer、autumn、winter 检查四季。资源来源与许可证见 ASSETS.md。
-
-main 分支根目录由 GitHub Pages 发布。
-
-
-## 当前秋季首页
-
-秋季采用 Blender 成片的固定视角烘焙光影、真实建筑 GLB 和带深度的 2.5D 植被；水面保留微动。主场景模型约79MB，保留建筑细节。春、夏、冬继续使用原有季节场景。入口为 assets/js/garden.bundle.js，可编辑模块保留在同目录；更新模块后需重新打包。source 中的旧建筑生成脚本对应原有季节资产，不会生成新版秋季母场景。
+源码模块在 `assets/js/`，首页入口为 `assets/js/garden.bundle.js`。`source/` 保留个人资料、正文与模板，以及压缩工具；完整 Blender 母场景和本地视觉验收材料留在私有开发目录，用户参考照片不发布。
