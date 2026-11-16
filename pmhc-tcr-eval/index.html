@@ -448,7 +448,7 @@ const SUBSETS = [["Item_001", "Item_002", "Item_003", "Item_004", "Item_005", "I
       document.getElementById("refPmhcList").innerHTML = item.refPmhcs.map(p => `
         <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-[var(--border)] bg-[var(--background)] text-xs font-mono">
           <strong class="text-[var(--foreground)]">${p.peptide}</strong>
-          <span class="text-[var(--muted-foreground)]">/ ${p.mhc} (${p.species}, MHC-${p.mhcClass})</span>
+          <span class="text-[var(--muted-foreground)]">/ ${p.mhc}</span>
         </span>
       `).join("");
 
