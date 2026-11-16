@@ -627,7 +627,38 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
       a.click();
     }
 
+    function syncAllLocalHistory() {
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k || !k.startsWith("pmhc_tcr_eval_")) continue;
+          if (k.includes("last_user")) continue;
+          const raw = localStorage.getItem(k);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.profile && parsed.profile.name) {
+            const norm = normalizeKey(parsed.profile.name);
+            const payload = {
+              event: "history_sync",
+              ts: parsed.lastSavedAt || new Date().toISOString(),
+              profile: { ...parsed.profile, normKey: norm },
+              unlockedBatches: parsed.unlockedBatches || 1,
+              currentBatch: (parsed.currentBatch || 0) + 1,
+              completed: Object.values(parsed.responses || {}).filter(isRecordComplete).length,
+              total: (parsed.unlockedBatches || 1) * 45,
+              lastIndex: parsed.lastIndex || 0,
+              responses: parsed.responses || {}
+            };
+            fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}`, {
+              method: "POST",
+              body: JSON.stringify(payload)
+            }).catch(() => {});
+          }
+        }
+      } catch (e) {}
+    }
     function initOnLoad() {
+      syncAllLocalHistory();
       if (new URLSearchParams(window.location.search).get("admin") === "yuyan") {
         loadAdminDashboard();
         return;
