@@ -36,6 +36,32 @@
 <body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-4 md:p-6">
   <div class="max-w-6xl mx-auto space-y-4">
 
+    <!-- ADMIN DASHBOARD (Only visible via ?admin=yuyan or login as admin_yuyan) -->
+    <div id="adminDashboard" class="hidden space-y-4">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-base md:text-lg font-semibold text-[var(--foreground)]">标注进度与实时结果监控后台</h1>
+          <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+            实时拉取所有已注册标注人的登录信息、已完成条目及未完全完成的半程作答明细（test 账号已单列，不影响正式标注）。
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" onclick="loadAdminDashboard()" class="text-xs px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] font-medium cursor-pointer hover:opacity-90">
+            🔄 刷新最新数据
+          </button>
+          <button type="button" onclick="exportAllAdminCsv(false)" class="text-xs px-3.5 py-1.5 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold cursor-pointer hover:opacity-90">
+            下载正式标注人汇总 CSV (排除 test)
+          </button>
+          <button type="button" onclick="exportAllAdminCsv(true)" class="text-xs px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] font-medium cursor-pointer hover:opacity-90">
+            下载全部 CSV (含 test)
+          </button>
+        </div>
+      </div>
+
+      <div id="adminSummaryCards" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+      <div id="adminUsersList" class="space-y-3"></div>
+    </div>
+
     <!-- STEP 1: Registration Gate -->
     <div id="registrationGate" class="max-w-xl mx-auto mt-6 bg-[var(--card)] border border-[var(--border)] rounded-xl p-6 shadow-sm space-y-5">
       <div class="space-y-1.5 border-b border-[var(--border)] pb-3">
@@ -387,7 +413,7 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
         doPush();
       } else {
         if (syncTimer) clearTimeout(syncTimer);
-        syncTimer = setTimeout(doPush, 1200);
+        syncTimer = setTimeout(doPush, 300);
       }
     }
 
@@ -411,7 +437,209 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
       }
     }
 
+
+    let adminUsersData = {};
+
+    function isTestAccount(normKey) {
+      return ["test", "admin", "demo", "admin_yuyan"].includes(normKey);
+    }
+
+    async function loadAdminDashboard() {
+      document.getElementById("registrationGate").classList.add("hidden");
+      document.getElementById("workspaceContainer").classList.add("hidden");
+      const dash = document.getElementById("adminDashboard");
+      dash.classList.remove("hidden");
+      const listEl = document.getElementById("adminUsersList");
+      listEl.innerHTML = `<div class="text-xs text-[var(--muted-foreground)] p-4">正在从云端拉取实时记录...</div>`;
+
+      try {
+        const resp = await fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}/json?poll=1&since=all&t=${Date.now()}`);
+        const text = await resp.text();
+        const lines = text.trim().split("\n").filter(Boolean);
+        const byUser = {};
+        for (const line of lines) {
+          try {
+            const msg = JSON.parse(line);
+            if (msg.event !== "message" || !msg.message) continue;
+            const payload = JSON.parse(msg.message);
+            const prof = payload.profile || {};
+            const nk = prof.normKey || normalizeKey(prof.name || "");
+            if (!nk) continue;
+            if (!byUser[nk]) {
+              byUser[nk] = {
+                firstSeen: payload.ts,
+                lastSeen: payload.ts,
+                lastEvent: payload.event,
+                profile: prof,
+                unlockedBatches: payload.unlockedBatches || 1,
+                currentBatch: payload.currentBatch || 1,
+                lastIndex: payload.lastIndex || 0,
+                responses: {}
+              };
+            }
+            byUser[nk].lastSeen = payload.ts;
+            byUser[nk].lastEvent = payload.event;
+            byUser[nk].profile = { ...byUser[nk].profile, ...prof };
+            byUser[nk].unlockedBatches = Math.max(byUser[nk].unlockedBatches, payload.unlockedBatches || 1);
+            byUser[nk].currentBatch = payload.currentBatch || byUser[nk].currentBatch;
+            byUser[nk].lastIndex = payload.lastIndex ?? byUser[nk].lastIndex;
+            if (payload.responses) {
+              for (const [vid, r] of Object.entries(payload.responses)) {
+                const prev = byUser[nk].responses[vid];
+                if (!prev || r.updated_at || r.ref_lit_match !== null || r.pmhc_similarity_1to3 !== null || r.tcr_scientific_qc !== null || r.note) {
+                  byUser[nk].responses[vid] = r;
+                }
+              }
+            }
+          } catch (e) {}
+        }
+        adminUsersData = byUser;
+        renderAdminDashboard();
+      } catch (e) {
+        listEl.innerHTML = `<div class="text-xs text-red-500 p-4">拉取失败：${e.message}</div>`;
+      }
+    }
+
+    function renderAdminDashboard() {
+      const keys = Object.keys(adminUsersData);
+      const realKeys = keys.filter(k => !isTestAccount(k));
+      const testKeys = keys.filter(k => isTestAccount(k));
+
+      let totalFull = 0;
+      let totalPartial = 0;
+      for (const k of realKeys) {
+        for (const r of Object.values(adminUsersData[k].responses)) {
+          if (isRecordComplete(r)) totalFull++;
+          else if (r.ref_lit_match !== null || r.pmhc_similarity_1to3 !== null || r.tcr_scientific_qc !== null || r.note) totalPartial++;
+        }
+      }
+
+      document.getElementById("adminSummaryCards").innerHTML = `
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+          <div class="text-xs text-[var(--muted-foreground)]">正式注册标注人数</div>
+          <div class="text-xl font-bold mt-1">${realKeys.length} 人 <span class="text-xs font-normal text-[var(--muted-foreground)]">（另含测试账号 ${testKeys.length} 个）</span></div>
+        </div>
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+          <div class="text-xs text-[var(--muted-foreground)]">正式标注人已完成条目</div>
+          <div class="text-xl font-bold mt-1 text-emerald-500">${totalFull} 条</div>
+        </div>
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4">
+          <div class="text-xs text-[var(--muted-foreground)]">正式标注人填写中（未完全完成）条目</div>
+          <div class="text-xl font-bold mt-1 text-amber-500">${totalPartial} 条</div>
+        </div>
+      `;
+
+      const listEl = document.getElementById("adminUsersList");
+      const orderedKeys = [...realKeys, ...testKeys];
+      if (!orderedKeys.length) {
+        listEl.innerHTML = `<div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 text-xs text-[var(--muted-foreground)]">暂无用户记录</div>`;
+        return;
+      }
+
+      listEl.innerHTML = orderedKeys.map(nk => {
+        const u = adminUsersData[nk];
+        const p = u.profile;
+        const isTest = isTestAccount(nk);
+        const entries = Object.entries(u.responses);
+        const fullRows = entries.filter(([_, r]) => isRecordComplete(r));
+        const partialRows = entries.filter(([_, r]) => !isRecordComplete(r) && (r.ref_lit_match !== null || r.pmhc_similarity_1to3 !== null || r.tcr_scientific_qc !== null || r.note));
+        const browsedOnly = entries.filter(([_, r]) => r.ref_lit_match === null && r.pmhc_similarity_1to3 === null && r.tcr_scientific_qc === null && !r.note);
+
+        const answeredRows = [...fullRows, ...partialRows];
+        const tableHtml = answeredRows.length ? `
+          <div class="overflow-x-auto rounded border border-[var(--border)] mt-2">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-[var(--background)] text-[var(--muted-foreground)] border-b border-[var(--border)]">
+                  <th class="py-1.5 px-2">状态</th>
+                  <th class="py-1.5 px-2">条目 ID</th>
+                  <th class="py-1.5 px-2">1. 参考pMHC与文献一致</th>
+                  <th class="py-1.5 px-2">2. 3条pMHC方向相似(1-3)</th>
+                  <th class="py-1.5 px-2">3. TCR序列科学性</th>
+                  <th class="py-1.5 px-2">备注</th>
+                  <th class="py-1.5 px-2">保存时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${answeredRows.map(([vid, r]) => {
+                  const done = isRecordComplete(r);
+                  return `<tr class="border-t border-[var(--border)]">
+                    <td class="py-1.5 px-2">${done ? "<span class=\"text-emerald-500 font-medium\">✓ 已完成</span>" : "<span class=\"text-amber-500 font-medium\">⏳ 未完成(部分作答)</span>"}</td>
+                    <td class="py-1.5 px-2 font-mono">${vid}</td>
+                    <td class="py-1.5 px-2 font-mono">${r.ref_lit_match ?? "<span class=\"text-[var(--muted-foreground)]\">未填</span>"}</td>
+                    <td class="py-1.5 px-2 font-mono">${r.pmhc_similarity_1to3 ?? "<span class=\"text-[var(--muted-foreground)]\">未填</span>"}</td>
+                    <td class="py-1.5 px-2 font-mono">${r.tcr_scientific_qc ?? "<span class=\"text-[var(--muted-foreground)]\">未填</span>"}</td>
+                    <td class="py-1.5 px-2">${r.note || "-"}</td>
+                    <td class="py-1.5 px-2 font-mono text-[var(--muted-foreground)]">${r.updated_at ? new Date(r.updated_at).toLocaleString("zh-CN") : "-"}</td>
+                  </tr>`;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `<div class="text-xs text-[var(--muted-foreground)] mt-2">已注册登录，暂未点击具体打分按钮（已浏览 ${browsedOnly.length} 条：${browsedOnly.map(x => x[0]).join(", ") || "无"}）。</div>`;
+
+        return `
+          <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="text-sm font-bold">${p.name}</span>
+                ${isTest ? "<span class=\"px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-500\">测试账号（不计入正式统计）</span>" : "<span class=\"px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-500\">正式标注人</span>"}
+                <span class="text-[var(--muted-foreground)]">单位：${p.affil || "-"} · 身份：${p.role || "-"} · 方向：${p.field || "-"}</span>
+              </div>
+              <div class="text-xs text-[var(--muted-foreground)] font-mono">
+                首次登录：${new Date(u.firstSeen).toLocaleString("zh-CN")} ｜ 最后活跃：${new Date(u.lastSeen).toLocaleString("zh-CN")}
+              </div>
+            </div>
+            <div class="text-xs flex flex-wrap gap-4">
+              <span>已解锁份数：<strong>${u.unlockedBatches} 份</strong>（当前在第 ${u.currentBatch} 份第 ${u.lastIndex + 1} 条）</span>
+              <span>已完成：<strong class="text-emerald-500">${fullRows.length} 条</strong></span>
+              <span>未完全完成（部分作答）：<strong class="text-amber-500">${partialRows.length} 条</strong></span>
+              <span>仅浏览未作答：<strong>${browsedOnly.length} 条</strong></span>
+            </div>
+            ${tableHtml}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function exportAllAdminCsv(includeTest) {
+      const rows = [["annotator_name", "is_test_account", "affiliation", "role", "field", "variant_id", "completion_status", "q1_ref_pmhc_lit_match", "q2_pmhc_similarity_1to3", "q3_tcr_scientific_validity", "note", "updated_at"]];
+      for (const [nk, u] of Object.entries(adminUsersData)) {
+        const isTest = isTestAccount(nk);
+        if (!includeTest && isTest) continue;
+        const p = u.profile;
+        for (const [vid, r] of Object.entries(u.responses)) {
+          const hasAny = r.ref_lit_match !== null || r.pmhc_similarity_1to3 !== null || r.tcr_scientific_qc !== null || r.note;
+          const status = isRecordComplete(r) ? "COMPLETED" : (hasAny ? "PARTIAL" : "BROWSED_ONLY");
+          rows.push([
+            `"${(p.name || "").replace(/"/g, '""')}"`,
+            isTest ? "TRUE" : "FALSE",
+            `"${(p.affil || "").replace(/"/g, '""')}"`,
+            p.role || "",
+            p.field || "",
+            vid,
+            status,
+            r.ref_lit_match ?? "",
+            r.pmhc_similarity_1to3 ?? "",
+            r.tcr_scientific_qc ?? "",
+            `"${(r.note || "").replace(/"/g, '""')}"`,
+            r.updated_at || ""
+          ]);
+        }
+      }
+      const csv = rows.map(r => r.join(",")).join("\n");
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = includeTest ? "all_annotations_with_test.csv" : "formal_annotations_only.csv";
+      a.click();
+    }
+
     function initOnLoad() {
+      if (new URLSearchParams(window.location.search).get("admin") === "yuyan") {
+        loadAdminDashboard();
+        return;
+      }
       try {
         const lastNorm = localStorage.getItem(LAST_USER_KEY);
         if (lastNorm) {
@@ -458,6 +686,10 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
       }
       errEl.classList.add("hidden");
       const norm = normalizeKey(nameVal);
+      if (norm === "admin_yuyan" || norm === "adminyuyan") {
+        loadAdminDashboard();
+        return;
+      }
 
       let existing = null;
       try {
