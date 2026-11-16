@@ -270,14 +270,9 @@
               </button>
             </div>
 
-            <div class="rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-xs text-[var(--muted-foreground)] space-y-1 leading-relaxed">
-              <div class="font-medium text-[var(--foreground)]">常见异常参考：</div>
-              <ul class="list-disc list-inside space-y-0.5">
-                <li>pMHC 序列异常（如 3–6aa 简称/截短残片、MHC-I 挂 17–18aa 粗筛长肽、人工多聚 A 对照等）</li>
-                <li>TCR α/β 链错位或双 β 链（如 CDR3α 填入 CASS... 或带 TRBV 注释）</li>
-                <li>CDR3α 与 CDR3β 序列完全相同，或缺少首尾 C...F/W 保守残基</li>
-              </ul>
-            </div>
+            <p class="text-xs text-[var(--muted-foreground)] leading-relaxed">
+              提示：请结合肽段长度与 MHC 类别规律、TCR α/β 链序列与基因配对关系进行判断。
+            </p>
 
             <textarea id="noteInput" oninput="updateNote(this.value)" rows="2" placeholder="选填备注..." class="w-full mt-1 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-xs text-[var(--foreground)] focus:outline-none"></textarea>
           </div>
