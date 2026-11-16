@@ -103,7 +103,8 @@
           <div class="flex flex-wrap items-center gap-2">
             <h1 class="text-base font-semibold text-[var(--foreground)]">pMHC–TCR 免疫学条目评估表</h1>
             <span id="annotatorBadge" class="text-xs px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)]"></span>
-            <button type="button" onclick="switchUser()" class="text-xs underline text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer">切换/修改标识</button>
+            <button type="button" onclick="switchUser()" class="text-xs px-2 py-0.5 rounded border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer">修改信息</button>
+            <button type="button" onclick="logoutUser()" class="text-xs px-2 py-0.5 rounded border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500/20 font-medium cursor-pointer">退出登录</button>
             <span id="autoSaveBadge" class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-500 font-medium">
               ✓ 已自动暂存
             </span>
@@ -393,6 +394,27 @@ const SUBSETS = [["Item_001", "Item_002", "Item_003", "Item_004", "Item_005", "I
       document.getElementById("gateAffil").value = state.profile.affil || "";
       document.getElementById("gateRole").value = state.profile.role || "";
       document.getElementById("gateField").value = state.profile.field || "";
+      document.getElementById("workspaceContainer").classList.add("hidden");
+      document.getElementById("registrationGate").classList.remove("hidden");
+    }
+
+    function logoutUser() {
+      try {
+        localStorage.removeItem(LAST_USER_KEY);
+      } catch (e) {}
+      activeItems = [];
+      currentIndex = 0;
+      state = {
+        profile: { name: "", normKey: "", affil: "", role: "", field: "" },
+        lastIndex: 0,
+        lastSavedAt: null,
+        responses: {}
+      };
+      document.getElementById("gateName").value = "";
+      document.getElementById("gateAffil").value = "";
+      document.getElementById("gateRole").value = "";
+      document.getElementById("gateField").value = "";
+      document.getElementById("submitNotice").classList.add("hidden");
       document.getElementById("workspaceContainer").classList.add("hidden");
       document.getElementById("registrationGate").classList.remove("hidden");
     }
