@@ -445,7 +445,7 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
       listEl.innerHTML = `<div class="text-xs text-[var(--muted-foreground)] p-4">正在从云端拉取实时记录...</div>`;
 
       try {
-        const resp = await fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}/json?poll=1&since=all&t=${Date.now()}`);
+        const resp = await fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}/json?poll=1&since=all`, { cache: "no-store" });
         const text = await resp.text();
         const lines = text.trim().split("\n").filter(Boolean);
         const byUser = {};
