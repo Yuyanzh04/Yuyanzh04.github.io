@@ -112,7 +112,7 @@
         <div class="font-semibold text-[var(--foreground)]">评估内容概览（每份 45 条，每条仅需点选 3 个问题）：</div>
         <div>1. 判断参考背景里的 pMHC 是否与文献背景一致；</div>
         <div>2. 判断下方 3 条 pMHC 是否与参考 pMHC 相似 / 研究方向相同；</div>
-        <div>3. 判断 pMHC 与配对 TCR 序列本身是否合理即可（无需查文献核对结合）。</div>
+        <div>3. 判断 pMHC 与配对 TCR 序列是否合理。</div>
       </div>
 
       <button type="button" onclick="enterWorkspace()" class="w-full py-2.5 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-semibold hover:opacity-90 transition cursor-pointer">
@@ -259,11 +259,11 @@
           <!-- Q3 -->
           <div class="space-y-2 pt-2 border-t border-[var(--border)]">
             <label class="block text-xs font-semibold text-[var(--foreground)]">
-              3. pMHC 与配对 TCR 序列是否符合科学性？（仅判断序列本身是否合理即可）
+              3. pMHC 与配对 TCR 序列是否合理？
             </label>
             <div class="grid grid-cols-2 gap-2">
               <button type="button" onclick="setTcrQc('VALID')" data-qc="VALID" class="q3-btn px-3 py-2 rounded-lg border border-[var(--border)] text-xs font-medium transition cursor-pointer text-center">
-                ✓ 符合科学规范
+                ✓ 序列合理
               </button>
               <button type="button" onclick="setTcrQc('INVALID')" data-qc="INVALID" class="q3-btn px-3 py-2 rounded-lg border border-[var(--border)] text-xs font-medium transition cursor-pointer text-center">
                 ⚠ 存在异常
