@@ -112,7 +112,7 @@
         <div class="font-semibold text-[var(--foreground)]">评估内容概览（每份 45 条，每条仅需点选 3 个问题）：</div>
         <div>1. 判断参考背景里的 pMHC 是否与文献背景一致；</div>
         <div>2. 判断下方 3 条 pMHC 是否与参考 pMHC 相似 / 研究方向相同；</div>
-        <div>3. 判断配对的 TCR 序列（CDR3α/β 及 V/J 基因）是否符合科学性。</div>
+        <div>3. 判断 pMHC 与配对 TCR 序列是否符合科学性。</div>
       </div>
 
       <button type="button" onclick="enterWorkspace()" class="w-full py-2.5 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-semibold hover:opacity-90 transition cursor-pointer">
@@ -259,7 +259,7 @@
           <!-- Q3 -->
           <div class="space-y-2 pt-2 border-t border-[var(--border)]">
             <label class="block text-xs font-semibold text-[var(--foreground)]">
-              3. 配对 TCR 序列（CDR3α/β 及 V/J 基因）是否符合科学性？
+              3. pMHC 与配对 TCR 序列是否符合科学性？
             </label>
             <div class="grid grid-cols-2 gap-2">
               <button type="button" onclick="setTcrQc('VALID')" data-qc="VALID" class="q3-btn px-3 py-2 rounded-lg border border-[var(--border)] text-xs font-medium transition cursor-pointer text-center">
@@ -273,9 +273,9 @@
             <div class="rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-xs text-[var(--muted-foreground)] space-y-1 leading-relaxed">
               <div class="font-medium text-[var(--foreground)]">常见异常参考：</div>
               <ul class="list-disc list-inside space-y-0.5">
-                <li>α/β 链错位或双 β 链（如 CDR3α 填入 CASS... 或带 TRBV 注释）</li>
-                <li>CDR3α 与 CDR3β 序列完全相同（同链重复伪配对）</li>
-                <li>CDR3 缺少首尾 C...F/W 保守残基，或 V/J 基因与物种/链型矛盾</li>
+                <li>pMHC 序列异常（如 3–6aa 简称/截短残片、MHC-I 挂 17–18aa 粗筛长肽、人工多聚 A 对照等）</li>
+                <li>TCR α/β 链错位或双 β 链（如 CDR3α 填入 CASS... 或带 TRBV 注释）</li>
+                <li>CDR3α 与 CDR3β 序列完全相同，或缺少首尾 C...F/W 保守残基</li>
               </ul>
             </div>
 
@@ -555,7 +555,7 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
                   <th class="py-1.5 px-2">条目 ID</th>
                   <th class="py-1.5 px-2">1. 参考pMHC与文献一致</th>
                   <th class="py-1.5 px-2">2. 3条pMHC方向相似(1-3)</th>
-                  <th class="py-1.5 px-2">3. TCR序列科学性</th>
+                  <th class="py-1.5 px-2">3. pMHC与TCR序列科学性</th>
                   <th class="py-1.5 px-2">备注</th>
                   <th class="py-1.5 px-2">保存时间</th>
                 </tr>
