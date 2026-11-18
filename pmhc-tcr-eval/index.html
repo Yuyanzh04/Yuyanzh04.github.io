@@ -365,33 +365,87 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
       return c;
     }
 
-    function buildSyncPayload(eventType) {
-      const unlocked = Math.min(state.unlockedBatches || 1, userBatches.length);
-      return {
-        event: eventType,
-        ts: new Date().toISOString(),
-        profile: state.profile,
-        unlockedBatches: unlocked,
-        currentBatch: currentBatchIdx + 1,
-        completed: countAllCompleted(),
-        total: unlocked * 45,
-        lastIndex: currentIndex,
-        responses: state.responses
-      };
+    function buildSyncPayloadsForUser(eventType, profileObj, unlockedBatches, currentBatch, lastIndex, responsesObj, activeItemId = null) {
+      const payloads = [];
+      const ts = new Date().toISOString();
+      const entries = Object.entries(responsesObj || {});
+      const scoreChunks = [{}];
+      for (const [vid, r] of entries) {
+        if (!r) continue;
+        const compact = [r.ref_lit_match ?? null, r.pmhc_similarity_1to3 ?? null, r.tcr_scientific_qc ?? null, r.updated_at || null];
+        let cur = scoreChunks[scoreChunks.length - 1];
+        cur[vid] = compact;
+        if (new Blob([JSON.stringify(cur)]).size > 2400) {
+          delete cur[vid];
+          scoreChunks.push({ [vid]: compact });
+        }
+      }
+      scoreChunks.forEach((sc, idx) => {
+        payloads.push(JSON.stringify({
+          v: 2,
+          event: idx === 0 ? eventType : `${eventType}_scores_${idx + 1}`,
+          ts,
+          profile: profileObj,
+          unlockedBatches,
+          currentBatch,
+          lastIndex,
+          scores: sc
+        }));
+      });
+
+      const noteEntries = entries.filter(([vid, r]) => r && r.note && (!activeItemId || vid === activeItemId));
+      if (noteEntries.length > 0) {
+        let curNotes = {};
+        for (const [vid, r] of noteEntries) {
+          const safeNote = String(r.note).slice(0, 1200);
+          curNotes[vid] = safeNote;
+          if (new Blob([JSON.stringify(curNotes)]).size > 2400) {
+            delete curNotes[vid];
+            if (Object.keys(curNotes).length > 0) {
+              payloads.push(JSON.stringify({
+                v: 2,
+                event: "notes_chunk",
+                ts,
+                profile: { name: profileObj.name, normKey: profileObj.normKey },
+                notes: curNotes
+              }));
+            }
+            curNotes = { [vid]: safeNote };
+          }
+        }
+        if (Object.keys(curNotes).length > 0) {
+          payloads.push(JSON.stringify({
+            v: 2,
+            event: "notes_chunk",
+            ts,
+            profile: { name: profileObj.name, normKey: profileObj.normKey },
+            notes: curNotes
+          }));
+        }
+      }
+      return payloads;
     }
 
     function pushCloudSync(eventType, immediate = false) {
       if (!state.profile || !state.profile.normKey) return;
-      const doPush = () => {
-        const bodyStr = JSON.stringify(buildSyncPayload(eventType));
-        fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}`, {
-          method: "POST",
-          body: bodyStr
-        }).catch(() => {});
-        fetch(`https://ntfy.sh/${userCloudTopic(state.profile.normKey)}`, {
-          method: "POST",
-          body: bodyStr
-        }).catch(() => {});
+      const doPush = async () => {
+        const unlocked = Math.min(state.unlockedBatches || 1, userBatches.length);
+        const curItem = getCurrentItem();
+        const onlyActiveNote = (eventType === "autosave" && curItem) ? curItem.id : null;
+        const bodyList = buildSyncPayloadsForUser(
+          eventType,
+          state.profile,
+          unlocked,
+          currentBatchIdx + 1,
+          currentIndex,
+          state.responses,
+          onlyActiveNote
+        );
+        const uTopic = userCloudTopic(state.profile.normKey);
+        for (const bodyStr of bodyList) {
+          fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}`, { method: "POST", body: bodyStr }).catch(() => {});
+          fetch(`https://ntfy.sh/${uTopic}`, { method: "POST", body: bodyStr }).catch(() => {});
+        }
       };
       if (immediate) {
         if (syncTimer) clearTimeout(syncTimer);
@@ -402,21 +456,79 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
       }
     }
 
+    function mergePayloadIntoResponses(targetResponses, payload) {
+      if (payload.responses) {
+        for (const [vid, r] of Object.entries(payload.responses)) {
+          if (!r) continue;
+          const prev = targetResponses[vid] || { ref_lit_match: null, pmhc_similarity_1to3: null, tcr_scientific_qc: null, note: "", updated_at: null };
+          targetResponses[vid] = {
+            ref_lit_match: r.ref_lit_match ?? prev.ref_lit_match,
+            pmhc_similarity_1to3: r.pmhc_similarity_1to3 ?? prev.pmhc_similarity_1to3,
+            tcr_scientific_qc: r.tcr_scientific_qc ?? prev.tcr_scientific_qc,
+            note: r.note || prev.note || "",
+            updated_at: r.updated_at || prev.updated_at
+          };
+        }
+      }
+      if (payload.scores) {
+        for (const [vid, arr] of Object.entries(payload.scores)) {
+          if (!Array.isArray(arr)) continue;
+          const prev = targetResponses[vid] || { ref_lit_match: null, pmhc_similarity_1to3: null, tcr_scientific_qc: null, note: "", updated_at: null };
+          targetResponses[vid] = {
+            ref_lit_match: arr[0] ?? prev.ref_lit_match,
+            pmhc_similarity_1to3: arr[1] ?? prev.pmhc_similarity_1to3,
+            tcr_scientific_qc: arr[2] ?? prev.tcr_scientific_qc,
+            note: prev.note || "",
+            updated_at: arr[3] || prev.updated_at
+          };
+        }
+      }
+      if (payload.notes) {
+        for (const [vid, noteStr] of Object.entries(payload.notes)) {
+          const prev = targetResponses[vid] || { ref_lit_match: null, pmhc_similarity_1to3: null, tcr_scientific_qc: null, note: "", updated_at: null };
+          targetResponses[vid] = { ...prev, note: noteStr || prev.note || "" };
+        }
+      }
+    }
+
+    async function parseNtfyMessageLine(msg) {
+      if (msg.event !== "message") return null;
+      if (msg.attachment && msg.attachment.url) {
+        if (msg.attachment.expires && msg.attachment.expires * 1000 < Date.now()) {
+          return { _expiredAttachment: true, time: msg.time, size: msg.attachment.size, topic: msg.topic };
+        }
+        try {
+          const r = await fetch(msg.attachment.url, { cache: "no-store" });
+          if (r.ok) return await r.json();
+        } catch (e) {}
+        return { _expiredAttachment: true, time: msg.time, size: msg.attachment.size, topic: msg.topic };
+      }
+      if (msg.message) {
+        try {
+          return JSON.parse(msg.message);
+        } catch (e) {}
+      }
+      return null;
+    }
+
     async function tryRestoreFromCloud(normKey) {
       try {
-        const resp = await fetch(`https://ntfy.sh/${userCloudTopic(normKey)}/json?poll=1&since=all`);
+        const resp = await fetch(`https://ntfy.sh/${userCloudTopic(normKey)}/json?poll=1&since=all`, { cache: "no-store" });
         if (!resp.ok) return null;
         const text = await resp.text();
         const lines = text.trim().split("\n").filter(Boolean);
-        let latest = null;
+        const merged = { unlockedBatches: 1, responses: {} };
+        let found = false;
         for (const line of lines) {
           const msg = JSON.parse(line);
-          if (msg.event === "message" && msg.message) {
-            const parsed = JSON.parse(msg.message);
-            if (parsed && parsed.responses) latest = parsed;
+          const parsed = await parseNtfyMessageLine(msg);
+          if (parsed && !parsed._expiredAttachment) {
+            found = true;
+            if (parsed.unlockedBatches) merged.unlockedBatches = Math.max(merged.unlockedBatches, parsed.unlockedBatches);
+            mergePayloadIntoResponses(merged.responses, parsed);
           }
         }
-        return latest;
+        return found ? merged : null;
       } catch (e) {
         return null;
       }
@@ -429,6 +541,8 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
       return ["test", "admin", "demo", "admin_yuyan", "adminyuyan", "yilingzhou", "zhouyiling"].includes(normKey);
     }
 
+    const ARCHIVED_USERS_SEED = {"test": {"firstSeen": "2026-11-16T04:56:14.371Z", "lastSeen": "2026-11-16T05:50:21.638Z", "lastEvent": "autosave", "profile": {"name": "test", "normKey": "test", "affil": "", "role": "", "field": ""}, "unlockedBatches": 1, "currentBatch": 1, "lastIndex": 6, "responses": {"Item_001_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_044_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_005_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_013_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_007_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_010_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_023_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}}}, "wy": {"firstSeen": "2026-11-16T15:02:13.843Z", "lastSeen": "2026-11-18T07:31:32.000Z", "lastEvent": "autosave (今日185次同步，最新包体积12.9KB)", "profile": {"name": "wy", "normKey": "wy", "affil": "USTC", "role": "Master", "field": "Structural_immunology"}, "unlockedBatches": 1, "currentBatch": 1, "lastIndex": 36, "responses": {"Item_013_B": {"ref_lit_match": "YES", "pmhc_similarity_1to3": 1, "tcr_scientific_qc": "INVALID", "note": "9组TCR的CDR3α/β序列形式基本合理，但存在抗原特异性配对存疑。\n\n pMHC3（YLQPRTFLL/HLA-A02:01）的TCR1，其CDR3α（CVVNMNTGFQKLVF）、CDR3β（CASSPPQGGNTGELFF）及V/J注释，与Nakayama & Michels（2021，Frontiers in Immunology，12:777788，DOI:10.3389/fimmu.2021.777788，Table 2，Clone #2）完全一致。但该文献记录的识别表位为INS-DRiP来源的MLYQHLLPL/HLA-A02:01，而非网页标注的SARS-CoV-2 YLQPRTFLL，存在抗原特异性标注疑点，尚不能排除交叉反应。\n\n此外，pMHC2（NLVPMVATV）的3组TCR此前在慕尼黑工业大学研究补充材料（第28页，克隆84-3、52-10、65-8）中找到对应配对记录，但仍需进一步核实原始实验及V/J注释。pMHC1的TCR3缺少J基因注释，部分β链V基因存在多重注释。", "updated_at": "2026-11-16T15:33:09.447Z"}, "Item_003_B": {"ref_lit_match": "YES", "pmhc_similarity_1to3": 1, "tcr_scientific_qc": "INVALID", "note": "核查发现，SIITFEKL/H-2Kb为OVA N4（SIINFEKL）的T4单点变体。Petkau等（European Journal of Immunology，DOI:10.1002/eji.202350700，Fig.6A及Methods）证实OT-I T细胞可响应T4刺激。但所列SIITFEKL候选TCR1（CDR3α：CALEGNYAQGLTF；CDR3β：CASRSAGEQYF）和TCR2（CDR3α：CAVSMSGGYKVVF；CDR3β：CASSPRQTDYTF），分别与慕尼黑工业大学资料Table 11（PDF第27页）中的Ed31、Ed21克隆精确匹配；该表将两者标注为OVA N4/H-2Kb，而非T4/H-2Kb。因此，不能直接把N4特异性证据当作T4特异性证据。TCR3及其他两条pMHC对应的TCR尚未获得充分的完整αβ配对和抗原特异性验证，部分V/J注释亦不完整。建议标记存在异常，重点核查TCR来源及其对指定肽的实际识别能力；目前不应直接认定序列错误或不存在交叉识别。", "updated_at": "2026-11-16T15:39:05.700Z"}, "Item_027_A": {"ref_lit_match": "NO", "pmhc_similarity_1to3": 1, "tcr_scientific_qc": null, "note": "", "updated_at": "2026-11-16T15:55:58.351Z"}, "Item_006_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_041_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_014_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_002_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_035_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_023_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_012_B": {"ref_lit_match": "YES", "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": "2026-11-16T15:55:14.920Z"}, "Item_026_B": {"ref_lit_match": null, "pmhc_similarity_1to3": 1, "tcr_scientific_qc": null, "note": "", "updated_at": "2026-11-16T15:56:24.133Z"}, "Item_042_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_009_B": {"ref_lit_match": null, "pmhc_similarity_1to3": 1, "tcr_scientific_qc": null, "note": "", "updated_at": "2026-11-16T15:56:38.798Z"}, "Item_044_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_001_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_010_A": {"ref_lit_match": null, "pmhc_similarity_1to3": 1, "tcr_scientific_qc": null, "note": "", "updated_at": "2026-11-16T15:57:58.485Z"}, "Item_040_B": {"ref_lit_match": null, "pmhc_similarity_1to3": 1, "tcr_scientific_qc": null, "note": "", "updated_at": "2026-11-16T15:58:13.104Z"}}}, "yilingzhou": {"firstSeen": "2026-11-16T12:45:29.474Z", "lastSeen": "2026-11-16T14:23:00.522Z", "lastEvent": "autosave", "profile": {"name": "yiling zhou", "normKey": "yilingzhou", "affil": "lds", "role": "Other", "field": "Comp_immunology"}, "unlockedBatches": 1, "currentBatch": 1, "lastIndex": 0, "responses": {"Item_001_B": {"ref_lit_match": "YES", "pmhc_similarity_1to3": 3, "tcr_scientific_qc": null, "note": "", "updated_at": "2026-11-16T14:23:00.221Z"}, "Item_015_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}}}, "zs": {"firstSeen": "2026-11-16T06:04:03.376Z", "lastSeen": "2026-11-16T06:04:03.376Z", "lastEvent": "login", "profile": {"name": "zs", "normKey": "zs", "affil": "", "role": "", "field": ""}, "unlockedBatches": 1, "currentBatch": 1, "lastIndex": 0, "responses": {}}, "zyc": {"firstSeen": "2026-11-16T13:22:32.633Z", "lastSeen": "2026-11-16T14:18:38.190Z", "lastEvent": "history_sync", "profile": {"name": "ZYC", "normKey": "zyc", "affil": "USTC/WY", "role": "PhD", "field": "General_biology"}, "unlockedBatches": 1, "currentBatch": 1, "lastIndex": 1, "responses": {"Item_001_B": {"ref_lit_match": "YES", "pmhc_similarity_1to3": 3, "tcr_scientific_qc": "VALID", "note": "", "updated_at": "2026-11-16T14:18:36.204Z"}, "Item_003_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}}}, "刘宇珊": {"firstSeen": "2026-11-16T14:45:02.464Z", "lastSeen": "2026-11-16T14:46:38.594Z", "lastEvent": "autosave", "profile": {"name": "刘宇珊", "normKey": "刘宇珊", "affil": "USTC/测试", "role": "Other", "field": "Structural_immunology"}, "unlockedBatches": 1, "currentBatch": 1, "lastIndex": 0, "responses": {"Item_037_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_041_A": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_004_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_006_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}, "Item_020_B": {"ref_lit_match": null, "pmhc_similarity_1to3": null, "tcr_scientific_qc": null, "note": "", "updated_at": null}}}};
+
     async function loadAdminDashboard() {
       document.getElementById("registrationGate").classList.add("hidden");
       document.getElementById("workspaceContainer").classList.add("hidden");
@@ -438,43 +552,45 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
       listEl.innerHTML = `<div class="text-xs text-[var(--muted-foreground)] p-4">正在从云端拉取实时记录...</div>`;
 
       try {
-        const resp = await fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}/json?poll=1&since=all`, { cache: "no-store" });
-        const text = await resp.text();
-        const lines = text.trim().split("\n").filter(Boolean);
-        const byUser = {};
-        for (const line of lines) {
+        const byUser = JSON.parse(JSON.stringify(ARCHIVED_USERS_SEED));
+        const knownKeys = ["wy", "zyc", "刘宇珊", "liuyushan", "lys", "zs", "yilingzhou", "test"];
+        const topics = [CLOUD_MASTER_TOPIC, ...knownKeys.map(k => userCloudTopic(k))];
+        for (const t of topics) {
           try {
-            const msg = JSON.parse(line);
-            if (msg.event !== "message" || !msg.message) continue;
-            const payload = JSON.parse(msg.message);
-            const prof = payload.profile || {};
-            const nk = prof.normKey || normalizeKey(prof.name || "");
-            if (!nk) continue;
-            if (!byUser[nk]) {
-              byUser[nk] = {
-                firstSeen: payload.ts,
-                lastSeen: payload.ts,
-                lastEvent: payload.event,
-                profile: prof,
-                unlockedBatches: payload.unlockedBatches || 1,
-                currentBatch: payload.currentBatch || 1,
-                lastIndex: payload.lastIndex || 0,
-                responses: {}
-              };
-            }
-            byUser[nk].lastSeen = payload.ts;
-            byUser[nk].lastEvent = payload.event;
-            byUser[nk].profile = { ...byUser[nk].profile, ...prof };
-            byUser[nk].unlockedBatches = Math.max(byUser[nk].unlockedBatches, payload.unlockedBatches || 1);
-            byUser[nk].currentBatch = payload.currentBatch || byUser[nk].currentBatch;
-            byUser[nk].lastIndex = payload.lastIndex ?? byUser[nk].lastIndex;
-            if (payload.responses) {
-              for (const [vid, r] of Object.entries(payload.responses)) {
-                const prev = byUser[nk].responses[vid];
-                if (!prev || r.updated_at || r.ref_lit_match !== null || r.pmhc_similarity_1to3 !== null || r.tcr_scientific_qc !== null || r.note) {
-                  byUser[nk].responses[vid] = r;
+            const resp = await fetch(`https://ntfy.sh/${t}/json?poll=1&since=all`, { cache: "no-store" });
+            if (!resp.ok) continue;
+            const text = await resp.text();
+            const lines = text.trim().split("\n").filter(Boolean);
+            for (const line of lines) {
+              try {
+                const msg = JSON.parse(line);
+                const payload = await parseNtfyMessageLine(msg);
+                if (!payload || payload._expiredAttachment) continue;
+                const prof = payload.profile || {};
+                const nk = prof.normKey || normalizeKey(prof.name || "");
+                if (!nk) continue;
+                if (!byUser[nk]) {
+                  byUser[nk] = {
+                    firstSeen: payload.ts,
+                    lastSeen: payload.ts,
+                    lastEvent: payload.event,
+                    profile: prof,
+                    unlockedBatches: payload.unlockedBatches || 1,
+                    currentBatch: payload.currentBatch || 1,
+                    lastIndex: payload.lastIndex || 0,
+                    responses: {}
+                  };
                 }
-              }
+                if (payload.ts && (!byUser[nk].lastSeen || payload.ts >= byUser[nk].lastSeen)) {
+                  byUser[nk].lastSeen = payload.ts;
+                  byUser[nk].lastEvent = payload.event || byUser[nk].lastEvent;
+                }
+                byUser[nk].profile = { ...byUser[nk].profile, ...prof };
+                if (payload.unlockedBatches) byUser[nk].unlockedBatches = Math.max(byUser[nk].unlockedBatches, payload.unlockedBatches);
+                if (payload.currentBatch) byUser[nk].currentBatch = payload.currentBatch;
+                if (payload.lastIndex !== undefined) byUser[nk].lastIndex = payload.lastIndex;
+                mergePayloadIntoResponses(byUser[nk].responses, payload);
+              } catch (e) {}
             }
           } catch (e) {}
         }
@@ -631,25 +747,29 @@ const SLOT_BATCHES = [[["Item_001_A", "Item_002_B", "Item_003_A", "Item_004_A", 
           const parsed = JSON.parse(raw);
           if (parsed && parsed.profile && parsed.profile.name) {
             const norm = normalizeKey(parsed.profile.name);
-            const payload = {
-              event: "history_sync",
-              ts: parsed.lastSavedAt || new Date().toISOString(),
-              profile: { ...parsed.profile, normKey: norm },
-              unlockedBatches: parsed.unlockedBatches || 1,
-              currentBatch: (parsed.currentBatch || 0) + 1,
-              completed: Object.values(parsed.responses || {}).filter(isRecordComplete).length,
-              total: (parsed.unlockedBatches || 1) * 45,
-              lastIndex: parsed.lastIndex || 0,
-              responses: parsed.responses || {}
-            };
-            fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}`, {
-              method: "POST",
-              body: JSON.stringify(payload)
-            }).catch(() => {});
+            const profObj = { ...parsed.profile, normKey: norm };
+            const bodyList = buildSyncPayloadsForUser(
+              "history_sync",
+              profObj,
+              parsed.unlockedBatches || 1,
+              (parsed.currentBatch || 0) + 1,
+              parsed.lastIndex || 0,
+              parsed.responses || {},
+              null
+            );
+            const uTopic = userCloudTopic(norm);
+            for (const bodyStr of bodyList) {
+              fetch(`https://ntfy.sh/${CLOUD_MASTER_TOPIC}`, { method: "POST", body: bodyStr }).catch(() => {});
+              fetch(`https://ntfy.sh/${uTopic}`, { method: "POST", body: bodyStr }).catch(() => {});
+            }
           }
         }
       } catch (e) {}
     }
+    window.addEventListener("focus", () => { syncAllLocalHistory(); });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") syncAllLocalHistory();
+    });
     function initOnLoad() {
       syncAllLocalHistory();
       if (new URLSearchParams(window.location.search).get("admin") === "yuyan") {
